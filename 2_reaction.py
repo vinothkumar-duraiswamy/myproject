@@ -12,7 +12,10 @@ background_music_folder = r"C:\Users\User\vinoth\myproject\background"
 output_folder = r"C:\Users\User\vinoth\myproject\output"
 
 # --- Font settings ---
-font = ImageFont.truetype("arialbd.ttf", 30)
+font = ImageFont.truetype("arialbd.ttf", 40)
+
+# --- Target output resolution (Vertical 1080p for Shorts) ---
+TARGET_W, TARGET_H = 1080, 1920
 
 # --- Helper function: Fit video with blurred background ---
 def make_fit_with_blur(clip, target_w, target_h):
@@ -31,7 +34,6 @@ def make_fit_with_blur(clip, target_w, target_h):
         return cv2.GaussianBlur(frame, (55, 55), 0)
 
     bg = clip.resize((target_w, target_h)).fl_image(blur_frame).volumex(0)  # mute background
-
     fg = fg.set_position("center")
     return CompositeVideoClip([bg, fg], size=(target_w, target_h))
 
@@ -60,25 +62,21 @@ for idx, video_file in enumerate(video_files, start=1):
     main_clip = VideoFileClip(video_path)
 
     # --- Top (main) video with blurred background ---
-    top_clip = make_fit_with_blur(main_clip, main_clip.w, main_clip.h // 2).set_position(("center", "top"))
+    top_clip = make_fit_with_blur(main_clip, TARGET_W, TARGET_H // 2).set_position(("center", "top"))
 
     # --- Reaction video: LOOP first, then fit with blur ---
     raw_reaction = VideoFileClip(reaction_path)
-
-    # ✅ Loop reaction to full duration
     reaction_looped = raw_reaction.fx(vfx.loop, duration=main_clip.duration)
-
-    # ✅ Now apply blurred fit
-    reaction_final = make_fit_with_blur(reaction_looped, main_clip.w, main_clip.h // 2).set_position(("center", "bottom"))
+    reaction_final = make_fit_with_blur(reaction_looped, TARGET_W, TARGET_H // 2).set_position(("center", "bottom"))
 
     # --- Create "Subscribe & Like" text with white border ---
     txt = "SUBSCRIBE & Like"
-    txt_img = Image.new("RGBA", (main_clip.w, 100), (0, 0, 0, 0))
+    txt_img = Image.new("RGBA", (TARGET_W, 120), (0, 0, 0, 0))
     draw = ImageDraw.Draw(txt_img)
     bbox = draw.textbbox((0, 0), txt, font=font)
     w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    text_x = (main_clip.w - w) // 2
-    text_y = (100 - h) // 2
+    text_x = (TARGET_W - w) // 2
+    text_y = (120 - h) // 2
 
     # Stroke (white border)
     for dx in [-2, -1, 0, 1, 2]:
@@ -95,7 +93,7 @@ for idx, video_file in enumerate(video_files, start=1):
     subscribe_text = (
         ImageClip(txt_path, transparent=True)
         .set_duration(main_clip.duration)
-        .set_position(("center", main_clip.h - 75))
+        .set_position(("center", TARGET_H - 150))
         .fadein(1)
         .fadeout(1)
     )
@@ -110,21 +108,26 @@ for idx, video_file in enumerate(video_files, start=1):
         music = music.set_duration(main_clip.duration)
 
     # --- Combine ---
-    final = CompositeVideoClip([top_clip, reaction_final, subscribe_text], size=(main_clip.w, main_clip.h))
+    final = CompositeVideoClip([top_clip, reaction_final, subscribe_text], size=(TARGET_W, TARGET_H))
     final = final.set_audio(music).set_duration(main_clip.duration)
 
-    # --- Export ---
-    output_path = os.path.join(output_folder, f"output_{idx}_{os.path.splitext(video_file)[0]}.mp4")
+    # --- Export (High Quality YouTube Shorts 1080x1920) ---
+    output_path = os.path.join(output_folder, f"output_{idx}_{os.path.splitext(video_file)[0]}_shorts.mp4")
     final.write_videofile(
         output_path,
         codec="libx264",
         audio_codec="aac",
-        bitrate="8000k",
-        preset="slow",
+        preset="medium",
+        ffmpeg_params=[
+            "-crf", "18",          # High quality
+            "-pix_fmt", "yuv420p", # YouTube compatible
+            "-movflags", "+faststart",
+            "-b:a", "320k"         # Boost audio quality
+        ],
         fps=main_clip.fps,
         threads=4
     )
 
     print(f"✅ Saved: {output_path}")
 
-print("🎉 All videos processed successfully!")
+print("🎉 All videos processed successfully in 1080x1920 (Shorts format)!")
